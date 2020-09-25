@@ -14,7 +14,7 @@ struct Opts {
     i2c: String,
 }
 
-static LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
+const LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
     // (angle, value)
     (0, 10),
     (10, 20),
@@ -34,17 +34,86 @@ static LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
     (140, 18700),
     (150, 18800),
     (160, 19000),
-    (170, 19000),
+    (170, 19002),
     (180, 19250),
     (190, 20080),
-    (200, 21080),
+    (200, 21082),
     (210, 21880),
     (220, 23550),
     (230, 24680),
     (240, 25730),
-    (250, 26227),
+    (250, 26226),
     (280, 26227),
 ];
+const MIN_ANGLE: u16 = LOOKUP_TABLE_VOL[0].0;
+const MAX_ANGLE: u16 = LOOKUP_TABLE_VOL[LOOKUP_TABLE_VOL.len() - 1].0;
+const MIN_VALUE: u16 = LOOKUP_TABLE_VOL[0].1;
+const MAX_VALUE: u16 = LOOKUP_TABLE_VOL[LOOKUP_TABLE_VOL.len() - 1].1;
+
+/// Convert a 12-bit input measurement to a value between 0 and 100.
+//fn map_potentiometer_value(val: u16) -> u8 {
+//}
+
+fn measurement_to_angle(val: u16) -> u16 {
+    // Lower and upper bounds
+    if val <= MIN_VALUE {
+        return MIN_ANGLE;
+    }
+    if val >= MAX_VALUE {
+        return MAX_ANGLE;
+    }
+
+    for i in 0..LOOKUP_TABLE_VOL.len() {
+        if LOOKUP_TABLE_VOL[i].1 == val {
+            // We found an exact match
+            return LOOKUP_TABLE_VOL[i].0;
+        } else if LOOKUP_TABLE_VOL[i].1 > val {
+            // The measurement is between the previous and the current entry.
+            let lower = LOOKUP_TABLE_VOL[i - 1];
+            let upper = LOOKUP_TABLE_VOL[i];
+
+            // Interpolate between the two angles.
+            return (
+                (upper.0 - lower.0) as u32
+                * (val - lower.1) as u32
+                / (upper.1 - lower.1) as u32
+                + lower.0 as u32
+            ) as u16;
+        }
+    }
+    MAX_ANGLE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_measurement_to_angle() {
+        // Min
+        assert_eq!(measurement_to_angle(0), 0);
+
+        // Max
+        assert_eq!(measurement_to_angle(27000), 280);
+        assert_eq!(measurement_to_angle(64000), 280);
+
+        // Exact
+        assert_eq!(measurement_to_angle(26226), 250);
+        assert_eq!(measurement_to_angle(26227), 280);
+        assert_eq!(measurement_to_angle(19000), 160);
+        assert_eq!(measurement_to_angle(19250), 180);
+
+        // Interpolated
+        assert_eq!(measurement_to_angle(19126), 175);
+    }
+
+    #[test]
+    fn test_measurement_to_angle_no_crash() {
+        for i in 0..u16::MAX {
+            measurement_to_angle(i);
+        }
+    }
+}
 
 fn main() {
     let opts: Opts = Opts::parse();
