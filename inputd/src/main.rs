@@ -2,7 +2,7 @@ use std::process::exit;
 use std::thread;
 use std::time::Duration;
 
-use ads1x1x::{channel, Ads1x1x, SlaveAddr, FullScaleRange, DataRate16Bit};
+use ads1x1x::{channel, Ads1x1x, DataRate16Bit, FullScaleRange, SlaveAddr};
 use clap::Clap;
 use embedded_hal::adc::OneShot;
 use linux_embedded_hal::I2cdev;
@@ -21,7 +21,7 @@ const LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
     (20, 280),
     (25, 1200),
     (30, 2600),
-    (40, 4700), 
+    (40, 4700),
     (50, 7500),
     (60, 10000),
     (70, 13500),
@@ -77,12 +77,9 @@ fn measurement_to_angle(val: u16) -> u16 {
             let upper = LOOKUP_TABLE_VOL[i];
 
             // Interpolate between the two angles.
-            return (
-                (upper.0 - lower.0) as u32
-                * (val - lower.1) as u32
+            return ((upper.0 - lower.0) as u32 * (val - lower.1) as u32
                 / (upper.1 - lower.1) as u32
-                + lower.0 as u32
-            ) as u16;
+                + lower.0 as u32) as u16;
         }
     }
     MAX_ANGLE
@@ -111,7 +108,12 @@ fn main() {
     loop {
         let a0 = block!(adc.read(&mut channel::SingleA0)).unwrap();
         let a1 = block!(adc.read(&mut channel::SingleA1)).unwrap();
-        println!("a0={} a1={} vol={}", a0, a1, map_potentiometer_value(a0 as u16));
+        println!(
+            "a0={} a1={} vol={}",
+            a0,
+            a1,
+            map_potentiometer_value(a0 as u16)
+        );
         thread::sleep(Duration::from_millis(250));
     }
 }
