@@ -1,0 +1,17 @@
+[Unit]
+Description=Weltempfänger Hardware Input Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=volumio
+Group=volumio
+WorkingDirectory=/home/volumio
+ExecStart=/home/volumio/inputd
+TimeoutStartSec=2
+TimeoutStopSec=5
+Restart=on-failure
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
