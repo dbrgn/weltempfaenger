@@ -51,8 +51,12 @@ const MIN_VALUE: u16 = LOOKUP_TABLE_VOL[0].1;
 const MAX_VALUE: u16 = LOOKUP_TABLE_VOL[LOOKUP_TABLE_VOL.len() - 1].1;
 
 /// Convert a 12-bit input measurement to a value between 0 and 100.
-//fn map_potentiometer_value(val: u16) -> u8 {
-//}
+fn map_potentiometer_value(val: u16) -> u8 {
+    let angle = measurement_to_angle(val);
+    let percent = (angle - MIN_ANGLE) * 100 / (MAX_ANGLE - MIN_ANGLE);
+    assert!(percent <= 100);
+    (100 - percent as u8)
+}
 
 fn measurement_to_angle(val: u16) -> u16 {
     // Lower and upper bounds
@@ -84,6 +88,34 @@ fn measurement_to_angle(val: u16) -> u16 {
     MAX_ANGLE
 }
 
+fn main() {
+    let opts: Opts = Opts::parse();
+
+    // Initialize ADC
+    let dev = I2cdev::new(opts.i2c).unwrap();
+    let address = SlaveAddr::default();
+    let mut adc = Ads1x1x::new_ads1115(dev, address);
+
+    // Configure PGA (gain)
+    if let Err(e) = adc.set_full_scale_range(FullScaleRange::Within4_096V) {
+        eprintln!("Could not set full scale range: {:?}", e);
+        exit(1);
+    }
+
+    // Configure sample rate
+    if let Err(e) = adc.set_data_rate(DataRate16Bit::Sps32) {
+        eprintln!("Warning: Could not set data rate: {:?}", e);
+    }
+
+    // Do measurement
+    loop {
+        let a0 = block!(adc.read(&mut channel::SingleA0)).unwrap();
+        let a1 = block!(adc.read(&mut channel::SingleA1)).unwrap();
+        println!("a0={} a1={} vol={}", a0, a1, map_potentiometer_value(a0 as u16));
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,34 +145,12 @@ mod tests {
             measurement_to_angle(i);
         }
     }
-}
 
-fn main() {
-    let opts: Opts = Opts::parse();
-
-    let x = LOOKUP_TABLE_VOL[0];
-
-    // Initialize ADC
-    let dev = I2cdev::new(opts.i2c).unwrap();
-    let address = SlaveAddr::default();
-    let mut adc = Ads1x1x::new_ads1115(dev, address);
-
-    // Configure PGA (gain)
-    if let Err(e) = adc.set_full_scale_range(FullScaleRange::Within4_096V) {
-        eprintln!("Could not set full scale range: {:?}", e);
-        exit(1);
-    }
-
-    // Configure sample rate
-    if let Err(e) = adc.set_data_rate(DataRate16Bit::Sps32) {
-        eprintln!("Warning: Could not set data rate: {:?}", e);
-    }
-
-    // Do measurement
-    loop {
-        let a0 = block!(adc.read(&mut channel::SingleA0)).unwrap();
-        let a1 = block!(adc.read(&mut channel::SingleA1)).unwrap();
-        println!("a0={} a1={}", a0, a1);
-        thread::sleep(Duration::from_millis(32));
+    #[test]
+    fn test_map_potentiometer_value() {
+        assert_eq!(map_potentiometer_value(0), 100);
+        assert_eq!(map_potentiometer_value(26227), 0);
+        assert_eq!(map_potentiometer_value(30000), 0);
+        assert_eq!(map_potentiometer_value(18700), 50);
     }
 }
