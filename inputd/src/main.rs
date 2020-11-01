@@ -1,6 +1,8 @@
-use std::process::exit;
-use std::thread;
-use std::time::Duration;
+use std::{
+    process::{exit, Command, Stdio},
+    thread,
+    time::Duration,
+};
 
 use ads1x1x::{channel, Ads1x1x, DataRate16Bit, FullScaleRange, SlaveAddr};
 use clap::Clap;
@@ -12,6 +14,8 @@ use nb::block;
 struct Opts {
     #[clap(default_value = "/dev/i2c-1")]
     i2c: String,
+    #[clap(default_value = "volumio")]
+    volumio_command: String,
 }
 
 const LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
@@ -55,7 +59,7 @@ fn map_potentiometer_value(val: u16) -> u8 {
     let angle = measurement_to_angle(val);
     let percent = (angle - MIN_ANGLE) * 100 / (MAX_ANGLE - MIN_ANGLE);
     assert!(percent <= 100);
-    (100 - percent as u8)
+    100 - percent as u8
 }
 
 fn measurement_to_angle(val: u16) -> u16 {
@@ -85,6 +89,25 @@ fn measurement_to_angle(val: u16) -> u16 {
     MAX_ANGLE
 }
 
+/// Set the volume using the volumio command with the specified name.
+fn set_volume(cmd: &str, volume: u8) {
+    // Clamp volume to 0-100
+    let volume = std::cmp::min(volume, 100);
+
+    // Set volume
+    let status_res = Command::new(cmd)
+        .arg("volume")
+        .arg(&volume.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status_res {
+        Ok(status) if status.success() => println!("Set volume to {}%", volume),
+        Ok(status) => eprintln!("Error: Exit status {} when setting volume", status),
+        Err(e) => eprintln!("Error: Could not set volume: {}", e),
+    };
+}
+
 fn main() {
     let opts: Opts = Opts::parse();
 
@@ -106,14 +129,20 @@ fn main() {
 
     // Do measurement
     loop {
+        // Analog input 0 ("Lautstärke")
         let a0 = block!(adc.read(&mut channel::SingleA0)).unwrap();
+        let volume = map_potentiometer_value(a0 as u16);
+
+        // Analog input 1 ("Klangfarbe")
         let a1 = block!(adc.read(&mut channel::SingleA1)).unwrap();
-        println!(
-            "a0={} a1={} vol={}",
-            a0,
-            a1,
-            map_potentiometer_value(a0 as u16)
-        );
+
+        // Print values
+        println!("a0={} a1={} vol={}", a0, a1, volume);
+
+        // Set volume
+        set_volume(&opts.volumio_command, volume);
+
+        // Sleep for some milliseconds
         thread::sleep(Duration::from_millis(250));
     }
 }
