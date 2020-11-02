@@ -6,9 +6,11 @@ use std::{
 
 use ads1x1x::{channel, Ads1x1x, DataRate16Bit, FullScaleRange, SlaveAddr};
 use clap::Clap;
+use debouncr::{debounce_4, Debouncer, Edge, Repeat4};
 use embedded_hal::adc::OneShot;
 use linux_embedded_hal::I2cdev;
 use nb::block;
+use rppal::gpio::{Gpio, InputPin, Level};
 
 #[cfg(test)]
 mod tests;
@@ -111,6 +113,81 @@ fn set_volume(cmd: &str, volume: u8) {
     };
 }
 
+/// GPIO input pins.
+struct GpioPins {
+    tonabn: InputPin,
+    ukw: InputPin,
+    kurz: InputPin,
+    mittel: InputPin,
+    lang: InputPin,
+}
+
+/// A debouncer for every input pin.
+struct Measurements {
+    tonabn: Debouncer<u8, Repeat4>,
+    ukw: Debouncer<u8, Repeat4>,
+    kurz: Debouncer<u8, Repeat4>,
+    mittel: Debouncer<u8, Repeat4>,
+    lang: Debouncer<u8, Repeat4>,
+}
+
+struct GpioPinState {
+    pins: GpioPins,
+    measurements: Measurements,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Button {
+    Tonabnehmer,
+    Ukw,
+    Kurz,
+    Mittel,
+    Lang,
+}
+
+impl GpioPinState {
+    fn new(pins: GpioPins) -> Self {
+        Self {
+            pins,
+            measurements: Measurements {
+                tonabn: debounce_4(),
+                ukw: debounce_4(),
+                kurz: debounce_4(),
+                mittel: debounce_4(),
+                lang: debounce_4(),
+            },
+        }
+    }
+
+    /// Update state by reading all inputs.
+    fn update(&mut self) -> (Vec<Button>, Vec<Button>) {
+        let mut pressed = vec![];
+        let mut released = vec![];
+
+        macro_rules! process_pin {
+            ($pin:expr, $measurement:expr, $button:expr) => {
+                match $measurement.update($pin.read() == Level::Low) {
+                    Some(Edge::Rising) => pressed.push($button),
+                    Some(Edge::Falling) => released.push($button),
+                    None => {}
+                }
+            };
+        }
+
+        process_pin!(
+            self.pins.tonabn,
+            self.measurements.tonabn,
+            Button::Tonabnehmer
+        );
+        process_pin!(self.pins.ukw, self.measurements.ukw, Button::Ukw);
+        process_pin!(self.pins.kurz, self.measurements.kurz, Button::Kurz);
+        process_pin!(self.pins.mittel, self.measurements.mittel, Button::Mittel);
+        process_pin!(self.pins.lang, self.measurements.lang, Button::Lang);
+
+        (pressed, released)
+    }
+}
+
 type Adc = Ads1x1x<
     ads1x1x::interface::I2cInterface<linux_embedded_hal::I2cdev>,
     ads1x1x::ic::Ads1115,
@@ -139,6 +216,24 @@ fn adc_loop(mut adc: Adc, opts: Opts) -> ! {
     }
 }
 
+fn gpio_loop(pins: GpioPins, _opts: Opts) -> ! {
+    let mut state = GpioPinState::new(pins);
+    loop {
+        // Update measurements
+        let (pressed, released) = state.update();
+
+        if !pressed.is_empty() {
+            println!("Pressed: {:?}", pressed);
+        }
+        if !released.is_empty() {
+            println!("Released: {:?}", released);
+        }
+
+        // Sleep for some milliseconds
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn main() {
     let opts: Opts = Opts::parse();
 
@@ -146,6 +241,31 @@ fn main() {
     let dev = I2cdev::new(&opts.i2c).unwrap();
     let address = SlaveAddr::default();
     let mut adc = Ads1x1x::new_ads1115(dev, address);
+
+    // Initialize GPIO
+    let gpio = Gpio::new().expect("Could not initialize GPIO");
+    let gpio_pins = GpioPins {
+        tonabn: gpio
+            .get(27)
+            .expect("Could not init GPIO pin 27")
+            .into_input_pullup(),
+        ukw: gpio
+            .get(22)
+            .expect("Could not init GPIO pin 22")
+            .into_input_pullup(),
+        kurz: gpio
+            .get(5)
+            .expect("Could not init GPIO pin 5")
+            .into_input_pullup(),
+        mittel: gpio
+            .get(6)
+            .expect("Could not init GPIO pin 6")
+            .into_input_pullup(),
+        lang: gpio
+            .get(13)
+            .expect("Could not init GPIO pin 13")
+            .into_input_pullup(),
+    };
 
     // Configure PGA (gain)
     if let Err(e) = adc.set_full_scale_range(FullScaleRange::Within4_096V) {
@@ -158,5 +278,9 @@ fn main() {
         eprintln!("Warning: Could not set data rate: {:?}", e);
     }
 
-    adc_loop(adc, opts.clone());
+    let opts_clone = opts.clone();
+    let adc_thread = thread::spawn(move || adc_loop(adc, opts_clone));
+    let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins, opts));
+    adc_thread.join().unwrap();
+    gpio_thread.join().unwrap();
 }

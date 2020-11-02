@@ -93,6 +93,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "debouncr"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a39978c74a9ae7ed9d41dd589abca30e739039768b47ba5a2fdc2ddbd65c16a"
+dependencies = [
+ "doc-comment",
+]
+
+[[package]]
+name = "doc-comment"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
+
+[[package]]
 name = "embedded-hal"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -157,9 +172,11 @@ version = "0.1.0"
 dependencies = [
  "ads1x1x",
  "clap",
+ "debouncr",
  "embedded-hal",
  "linux-embedded-hal",
  "nb 0.1.3",
+ "rppal",
 ]
 
 [[package]]
@@ -275,6 +292,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rppal"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "137dbba1fb867daa27cda4c3cd6a11bca5bb5a1551f034cf9319b994846ddbe1"
+dependencies = [
+ "lazy_static",
+ "libc",
 ]
 
 [[package]]
