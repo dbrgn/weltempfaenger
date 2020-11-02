@@ -10,7 +10,7 @@ use embedded_hal::adc::OneShot;
 use linux_embedded_hal::I2cdev;
 use nb::block;
 
-#[derive(Clap, Debug)]
+#[derive(Clap, Debug, Clone)]
 struct Opts {
     #[clap(default_value = "/dev/i2c-1")]
     i2c: String,
@@ -108,25 +108,14 @@ fn set_volume(cmd: &str, volume: u8) {
     };
 }
 
-fn main() {
-    let opts: Opts = Opts::parse();
+type Adc = Ads1x1x<
+    ads1x1x::interface::I2cInterface<linux_embedded_hal::I2cdev>,
+    ads1x1x::ic::Ads1115,
+    ads1x1x::ic::Resolution16Bit,
+    ads1x1x::mode::OneShot,
+>;
 
-    // Initialize ADC
-    let dev = I2cdev::new(opts.i2c).unwrap();
-    let address = SlaveAddr::default();
-    let mut adc = Ads1x1x::new_ads1115(dev, address);
-
-    // Configure PGA (gain)
-    if let Err(e) = adc.set_full_scale_range(FullScaleRange::Within4_096V) {
-        eprintln!("Could not set full scale range: {:?}", e);
-        exit(1);
-    }
-
-    // Configure sample rate
-    if let Err(e) = adc.set_data_rate(DataRate16Bit::Sps32) {
-        eprintln!("Warning: Could not set data rate: {:?}", e);
-    }
-
+fn adc_loop(mut adc: Adc, opts: Opts) -> ! {
     // Do measurement
     loop {
         // Analog input 0 ("Lautstärke")
@@ -145,6 +134,28 @@ fn main() {
         // Sleep for some milliseconds
         thread::sleep(Duration::from_millis(250));
     }
+}
+
+fn main() {
+    let opts: Opts = Opts::parse();
+
+    // Initialize ADC
+    let dev = I2cdev::new(&opts.i2c).unwrap();
+    let address = SlaveAddr::default();
+    let mut adc = Ads1x1x::new_ads1115(dev, address);
+
+    // Configure PGA (gain)
+    if let Err(e) = adc.set_full_scale_range(FullScaleRange::Within4_096V) {
+        eprintln!("Could not set full scale range: {:?}", e);
+        exit(1);
+    }
+
+    // Configure sample rate
+    if let Err(e) = adc.set_data_rate(DataRate16Bit::Sps32) {
+        eprintln!("Warning: Could not set data rate: {:?}", e);
+    }
+
+    adc_loop(adc, opts.clone());
 }
 
 #[cfg(test)]
