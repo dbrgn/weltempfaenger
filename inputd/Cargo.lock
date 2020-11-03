@@ -94,9 +94,9 @@ dependencies = [
 
 [[package]]
 name = "debouncr"
-version = "0.1.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a39978c74a9ae7ed9d41dd589abca30e739039768b47ba5a2fdc2ddbd65c16a"
+checksum = "f70b2b549ea088dde8f7b2a3f169d011849d01c5bdc0a141ea814736d01423a6"
 dependencies = [
  "doc-comment",
 ]
