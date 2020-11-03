@@ -6,7 +6,7 @@ use std::{
 
 use ads1x1x::{channel, Ads1x1x, DataRate16Bit, FullScaleRange, SlaveAddr};
 use clap::Clap;
-use debouncr::{debounce_4, Debouncer, Edge, Repeat4};
+use debouncr::{debounce_16, Debouncer, Edge, Repeat16};
 use embedded_hal::adc::OneShot;
 use linux_embedded_hal::I2cdev;
 use nb::block;
@@ -122,13 +122,15 @@ struct GpioPins {
     lang: InputPin,
 }
 
+type Repetitions = Repeat16;
+
 /// A debouncer for every input pin.
 struct Measurements {
-    tonabn: Debouncer<u8, Repeat4>,
-    ukw: Debouncer<u8, Repeat4>,
-    kurz: Debouncer<u8, Repeat4>,
-    mittel: Debouncer<u8, Repeat4>,
-    lang: Debouncer<u8, Repeat4>,
+    tonabn: Debouncer<u16, Repetitions>,
+    ukw: Debouncer<u16, Repetitions>,
+    kurz: Debouncer<u16, Repetitions>,
+    mittel: Debouncer<u16, Repetitions>,
+    lang: Debouncer<u16, Repetitions>,
 }
 
 struct GpioPinState {
@@ -150,11 +152,11 @@ impl GpioPinState {
         Self {
             pins,
             measurements: Measurements {
-                tonabn: debounce_4(),
-                ukw: debounce_4(),
-                kurz: debounce_4(),
-                mittel: debounce_4(),
-                lang: debounce_4(),
+                tonabn: debounce_16(),
+                ukw: debounce_16(),
+                kurz: debounce_16(),
+                mittel: debounce_16(),
+                lang: debounce_16(),
             },
         }
     }
@@ -229,8 +231,11 @@ fn gpio_loop(pins: GpioPins, _opts: Opts) -> ! {
             println!("Released: {:?}", released);
         }
 
-        // Sleep for some milliseconds
-        thread::sleep(Duration::from_millis(5));
+        // Sleep for 10 milliseconds.
+        // The debounce count is 16, that means that
+        // a signal must be stable for 160ms to trigger
+        // the interrupt.
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
