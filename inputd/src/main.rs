@@ -163,6 +163,21 @@ fn stop_playback() {
     };
 }
 
+/// Shut down the system.
+fn shutdown() {
+    let status_res = Command::new("/usr/bin/sudo")
+        .arg("shutdown")
+        .arg("now")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status_res {
+        Ok(status) if status.success() => println!("Shutting down"),
+        Ok(status) => eprintln!("Error: Exit status {} when shutting down", status),
+        Err(e) => eprintln!("Error: Could not shut down: {}", e),
+    };
+}
+
 /// GPIO input pins.
 struct GpioPins {
     aus: InputPin,
@@ -279,7 +294,7 @@ fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
             println!("Pressed: {:?}", pressed);
 
             match pressed[0] {
-                Button::Aus => {},
+                Button::Aus => shutdown(),
                 Button::Tonabnehmer => play_playlist("jazz"),
                 Button::Ukw => play_playlist("mellow"),
                 Button::Kurz => play_playlist("world"),
