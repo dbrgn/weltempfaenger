@@ -259,10 +259,10 @@ fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
 
             match pressed[0] {
                 Button::Tonabnehmer => play_playlist("jazz"),
-                Button::Ukw => play_playlist("classical"),
-                Button::Kurz => play_playlist("oldies"),
+                Button::Ukw => play_playlist("mellow"),
+                Button::Kurz => play_playlist("world"),
                 Button::Mittel => play_playlist("rockblues"),
-                Button::Lang => {},
+                Button::Lang => play_playlist("progrock"),
             }
         }
         if !released.is_empty() {
