@@ -97,8 +97,10 @@ fn measurement_to_angle(val: u16) -> u16 {
 /// Wait for volumio to be started.
 fn wait_for_volumio(cmd: &str) {
     loop {
+        // To test whether volumio is working, try setting the volume to "30".
         let status_res = Command::new(cmd)
-            .arg("status")
+            .arg("volume")
+            .arg("30")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
