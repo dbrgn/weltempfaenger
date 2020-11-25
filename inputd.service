@@ -1,6 +1,7 @@
 [Unit]
 Description=Weltempfänger Hardware Input Daemon
-After=network.target
+Requires=volumio.service
+After=volumio.service
 
 [Service]
 Type=simple
