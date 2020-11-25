@@ -151,6 +151,7 @@ fn play_playlist(name: &str) {
 
 /// GPIO input pins.
 struct GpioPins {
+    aus: InputPin,
     tonabn: InputPin,
     ukw: InputPin,
     kurz: InputPin,
@@ -162,6 +163,7 @@ type Repetitions = Repeat16;
 
 /// A debouncer for every input pin.
 struct Measurements {
+    aus: DebouncerStateful<u16, Repetitions>,
     tonabn: DebouncerStateful<u16, Repetitions>,
     ukw: DebouncerStateful<u16, Repetitions>,
     kurz: DebouncerStateful<u16, Repetitions>,
@@ -176,6 +178,7 @@ struct GpioPinState {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Button {
+    Aus,
     Tonabnehmer,
     Ukw,
     Kurz,
@@ -188,6 +191,7 @@ impl GpioPinState {
         Self {
             pins,
             measurements: Measurements {
+                aus: debounce_stateful_16(false),
                 tonabn: debounce_stateful_16(false),
                 ukw: debounce_stateful_16(false),
                 kurz: debounce_stateful_16(false),
@@ -203,20 +207,21 @@ impl GpioPinState {
         let mut released = vec![];
 
         macro_rules! process_pin {
-            ($pin:expr, $measurement:expr, $button:expr) => {
+            ($pin:expr, $measurement:expr, $button:expr, $inverted:expr) => {
                 match $measurement.update($pin.read() == Level::Low) {
-                    Some(Edge::Rising) => pressed.push($button),
-                    Some(Edge::Falling) => released.push($button),
+                    Some(Edge::Rising) => if $inverted { released.push($button) } else { pressed.push($button) },
+                    Some(Edge::Falling) => if $inverted { pressed.push($button) } else { released.push($button) },
                     None => {}
                 }
             };
         }
 
-        process_pin!(self.pins.tonabn, self.measurements.tonabn, Button::Tonabnehmer);
-        process_pin!(self.pins.ukw, self.measurements.ukw, Button::Ukw);
-        process_pin!(self.pins.kurz, self.measurements.kurz, Button::Kurz);
-        process_pin!(self.pins.mittel, self.measurements.mittel, Button::Mittel);
-        process_pin!(self.pins.lang, self.measurements.lang, Button::Lang);
+        process_pin!(self.pins.aus, self.measurements.aus, Button::Aus, true);
+        process_pin!(self.pins.tonabn, self.measurements.tonabn, Button::Tonabnehmer, false);
+        process_pin!(self.pins.ukw, self.measurements.ukw, Button::Ukw, false);
+        process_pin!(self.pins.kurz, self.measurements.kurz, Button::Kurz, false);
+        process_pin!(self.pins.mittel, self.measurements.mittel, Button::Mittel, false);
+        process_pin!(self.pins.lang, self.measurements.lang, Button::Lang, false);
 
         (pressed, released)
     }
@@ -260,6 +265,7 @@ fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
             println!("Pressed: {:?}", pressed);
 
             match pressed[0] {
+                Button::Aus => {},
                 Button::Tonabnehmer => play_playlist("jazz"),
                 Button::Ukw => play_playlist("mellow"),
                 Button::Kurz => play_playlist("world"),
@@ -290,6 +296,10 @@ fn main() {
     // Initialize GPIO
     let gpio = Gpio::new().expect("Could not initialize GPIO");
     let gpio_pins = GpioPins {
+        aus: gpio
+            .get(17)
+            .expect("Could not init GPIO pin 17")
+            .into_input_pullup(),
         tonabn: gpio
             .get(27)
             .expect("Could not init GPIO pin 27")
