@@ -94,6 +94,26 @@ fn measurement_to_angle(val: u16) -> u16 {
     MAX_ANGLE
 }
 
+/// Wait for volumio to be started.
+fn wait_for_volumio(cmd: &str) {
+    loop {
+        let status_res = Command::new(cmd)
+            .arg("status")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match status_res {
+            Ok(status) if status.success() => {
+                println!("Volumio is ready!");
+                return;
+            },
+            Ok(status) => eprintln!("Waiting for volumio, exit status {}", status),
+            Err(e) => eprintln!("Waiting for volumio, {}", e),
+        };
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 /// Set the volume using the volumio command with the specified name.
 fn set_volume(cmd: &str, volume: u8) {
     // Clamp volume to 0-100
@@ -301,6 +321,10 @@ fn main() {
         eprintln!("Warning: Could not set data rate: {:?}", e);
     }
 
+    // Wait for volumio
+    wait_for_volumio(&opts.volumio_command);
+
+    // Start threads
     let opts_clone = opts.clone();
     let adc_thread = thread::spawn(move || adc_loop(adc, opts_clone));
     let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins, opts));
