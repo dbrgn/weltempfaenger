@@ -113,6 +113,20 @@ fn set_volume(cmd: &str, volume: u8) {
     };
 }
 
+/// Play a playlist through the API.
+fn play_playlist(name: &str) {
+    let status_res = Command::new("/usr/bin/curl")
+        .arg(format!("http://127.0.0.1:3000/api/v1/commands/?cmd=playplaylist&name={}", name))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status_res {
+        Ok(status) if status.success() => println!("Started playlist {}", name),
+        Ok(status) => eprintln!("Error: Exit status {} when starting playlist {}", status, name),
+        Err(e) => eprintln!("Error: Could not play playlist {}: {}", name, e),
+    };
+}
+
 /// GPIO input pins.
 struct GpioPins {
     tonabn: InputPin,
@@ -176,11 +190,7 @@ impl GpioPinState {
             };
         }
 
-        process_pin!(
-            self.pins.tonabn,
-            self.measurements.tonabn,
-            Button::Tonabnehmer
-        );
+        process_pin!(self.pins.tonabn, self.measurements.tonabn, Button::Tonabnehmer);
         process_pin!(self.pins.ukw, self.measurements.ukw, Button::Ukw);
         process_pin!(self.pins.kurz, self.measurements.kurz, Button::Kurz);
         process_pin!(self.pins.mittel, self.measurements.mittel, Button::Mittel);
@@ -218,7 +228,7 @@ fn adc_loop(mut adc: Adc, opts: Opts) -> ! {
     }
 }
 
-fn gpio_loop(pins: GpioPins, _opts: Opts) -> ! {
+fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
     let mut state = GpioPinState::new(pins);
     loop {
         // Update measurements
@@ -226,6 +236,14 @@ fn gpio_loop(pins: GpioPins, _opts: Opts) -> ! {
 
         if !pressed.is_empty() {
             println!("Pressed: {:?}", pressed);
+
+            match pressed[0] {
+                Button::Tonabnehmer => play_playlist("jazz"),
+                Button::Ukw => play_playlist("classical"),
+                Button::Kurz => play_playlist("oldies"),
+                Button::Mittel => play_playlist("rockblues"),
+                Button::Lang => {},
+            }
         }
         if !released.is_empty() {
             println!("Released: {:?}", released);
