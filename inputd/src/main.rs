@@ -149,6 +149,20 @@ fn play_playlist(name: &str) {
     };
 }
 
+/// Stop playback.
+fn stop_playback() {
+    let status_res = Command::new("/usr/bin/curl")
+        .arg("http://127.0.0.1:3000/api/v1/commands/?cmd=stop")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status_res {
+        Ok(status) if status.success() => println!("Stopped playback"),
+        Ok(status) => eprintln!("Error: Exit status {} when stopping playback", status),
+        Err(e) => eprintln!("Error: Could not stop playback: {}", e),
+    };
+}
+
 /// GPIO input pins.
 struct GpioPins {
     aus: InputPin,
@@ -275,6 +289,9 @@ fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
         }
         if !released.is_empty() {
             println!("Released: {:?}", released);
+            if pressed.is_empty() {
+                stop_playback();
+            }
         }
 
         // Sleep for 10 milliseconds.
