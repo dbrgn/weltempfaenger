@@ -1,2 +1,2 @@
 [target.arm-unknown-linux-musleabihf]
-linker = "arm-linux-gnueabihf-musl-gcc"
+linker = "arm-linux-musleabihf-gcc"

@@ -4,6 +4,8 @@ A raspberry pi based radio in a 50s Grundig radio enclosure.
 
 ## Installing
 
+On Arch Linux, install `muslcc-arm-linux-musleabihf-cross-bin` from AUR.
+
 Build plugin:
 
     cd inputd
