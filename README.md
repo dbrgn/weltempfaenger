@@ -2,7 +2,7 @@
 
 A raspberry pi based radio in a 50s Grundig radio enclosure.
 
-## Installing
+## 1. Building inputd
 
 On Arch Linux, install `muslcc-arm-linux-musleabihf-cross-bin` from AUR.
 
@@ -10,6 +10,15 @@ Build plugin:
 
     cd inputd
     ./build-rpi.sh
+
+## 2. Build custom image for Raspberry Pi Zero W
+
+Build image with buildroot:
+
+    cd rpi-image/
+    ./build.sh
+
+## Alternative: Manual Installing (Raspbian)
 
 Copy plugin to volumio:
 
