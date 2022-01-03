@@ -1,5 +1,8 @@
 # See http://elinux.org/RPiconfig for a description of config.txt syntax
 
+start_file=start.elf
+fixup_file=fixup.dat
+
 kernel=zImage
 
 # To use an external initramfs file
@@ -20,6 +23,12 @@ gpu_mem_1024=32
 
 # Always enable output to HDMI
 hdmi_force_hotplug=1
+
+# Fixes rpi (3B, 3B+, 3A+, 4B and Zero W) ttyAMA0 serial console
+dtoverlay=miniuart-bt
+
+# Enable autoprobing of Bluetooth driver without need of hciattach/btattach
+dtoverlay=krnbt=on
 
 # Enable I²C hardware
 dtparam=i2c_arm=on

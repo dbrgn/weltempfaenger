@@ -27,7 +27,7 @@ echo "==> Apply config"
 rm -f $DIR/.config
 cp buildroot-defconfig $DIR/configs/weltempfaenger_defconfig
 cd $DIR
-cat configs/raspberrypi0w_defconfig configs/weltempfaenger_defconfig > configs/merged_defconfig
+cat configs/raspberrypi3_defconfig configs/weltempfaenger_defconfig > configs/merged_defconfig
 make merged_defconfig
 cd ..
 
