@@ -19,8 +19,6 @@ mod tests;
 struct Opts {
     #[clap(default_value = "/dev/i2c-1")]
     i2c: String,
-    #[clap(default_value = "volumio")]
-    volumio_command: String,
 }
 
 const LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
@@ -94,37 +92,17 @@ fn measurement_to_angle(val: u16) -> u16 {
     MAX_ANGLE
 }
 
-/// Wait for volumio to be started.
-fn wait_for_volumio(cmd: &str) {
-    loop {
-        // To test whether volumio is working, try setting the volume to "30".
-        let status_res = Command::new(cmd)
-            .arg("volume")
-            .arg("30")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        match status_res {
-            Ok(status) if status.success() => {
-                println!("Volumio is ready!");
-                return;
-            },
-            Ok(status) => eprintln!("Waiting for volumio, exit status {}", status),
-            Err(e) => eprintln!("Waiting for volumio, {}", e),
-        };
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-}
-
-/// Set the volume using the volumio command with the specified name.
-fn set_volume(cmd: &str, volume: u8) {
+/// Set the ALSA volume (percent value 0-100).
+fn set_volume(volume: u8) {
     // Clamp volume to 0-100
     let volume = std::cmp::min(volume, 100);
 
     // Set volume
-    let status_res = Command::new(cmd)
-        .arg("volume")
-        .arg(&volume.to_string())
+    let status_res = Command::new("amixer")
+        .arg("-M")
+        .arg("set")
+        .arg("Digital")
+        .arg(&format!("{}%", volume))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
@@ -261,7 +239,7 @@ type Adc = Ads1x1x<
     ads1x1x::mode::OneShot,
 >;
 
-fn adc_loop(mut adc: Adc, opts: Opts) -> ! {
+fn adc_loop(mut adc: Adc) -> ! {
     // Do measurement
     loop {
         // Analog input 0 ("Lautstärke")
@@ -275,14 +253,14 @@ fn adc_loop(mut adc: Adc, opts: Opts) -> ! {
         println!("a0={} a1={} vol={}", a0, a1, volume);
 
         // Set volume
-        set_volume(&opts.volumio_command, volume);
+        set_volume(volume);
 
         // Sleep for some milliseconds
         thread::sleep(Duration::from_millis(250));
     }
 }
 
-fn gpio_loop(pins: GpioPins, opts: Opts) -> ! {
+fn gpio_loop(pins: GpioPins) -> ! {
     let mut state = GpioPinState::new(pins);
     loop {
         // Update measurements
@@ -363,13 +341,9 @@ fn main() {
         eprintln!("Warning: Could not set data rate: {:?}", e);
     }
 
-    // Wait for volumio
-    wait_for_volumio(&opts.volumio_command);
-
     // Start threads
-    let opts_clone = opts.clone();
-    let adc_thread = thread::spawn(move || adc_loop(adc, opts_clone));
-    let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins, opts));
+    let adc_thread = thread::spawn(move || adc_loop(adc));
+    let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins));
     adc_thread.join().unwrap();
     gpio_thread.join().unwrap();
 }
