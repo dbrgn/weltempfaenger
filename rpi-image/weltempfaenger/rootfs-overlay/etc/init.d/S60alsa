@@ -1,0 +1,6 @@
+#!/bin/sh
+#
+# Set ALSA boot settings
+#
+echo "Setting ALSA volume to 30%"
+amixer -M set 'Digital' 30%
