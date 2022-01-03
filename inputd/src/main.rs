@@ -165,9 +165,7 @@ fn stop_playback() {
 
 /// Shut down the system.
 fn shutdown() {
-    let status_res = Command::new("/usr/bin/sudo")
-        .arg("shutdown")
-        .arg("now")
+    let status_res = Command::new("/sbin/halt")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
