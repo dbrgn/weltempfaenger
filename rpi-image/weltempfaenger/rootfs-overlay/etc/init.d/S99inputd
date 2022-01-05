@@ -1,5 +1,27 @@
 #!/bin/sh
 #
-# Start inputd
-#
-inputd
+# Start inputd in the background using start-stop-daemon
+
+BIN=/usr/bin/inputd
+
+start() {
+    start-stop-daemon --start --background -x $BIN
+}
+
+stop() {
+    start-stop-daemon --stop -x $BIN
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    *)
+        echo "Usage: $0 (start|stop)"
+        exit 1
+esac
+
+exit $?
