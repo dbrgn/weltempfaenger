@@ -1,5 +1,6 @@
 use std::{
-    process::{exit, Command, Stdio},
+    process::{exit, Child, Command, Stdio},
+    sync::mpsc,
     thread,
     time::Duration,
 };
@@ -10,6 +11,10 @@ use debouncr::{debounce_stateful_16, DebouncerStateful, Edge, Repeat16};
 use embedded_hal::adc::OneShot;
 use linux_embedded_hal::I2cdev;
 use nb::block;
+use nix::{
+    sys::signal::{self, Signal},
+    unistd::Pid,
+};
 use rppal::gpio::{Gpio, InputPin, Level};
 
 #[cfg(test)]
@@ -19,6 +24,8 @@ mod tests;
 struct Opts {
     #[clap(default_value = "/dev/i2c-1")]
     i2c: String,
+    #[clap(long = "volume-debugging")]
+    volume_debugging: bool,
 }
 
 const LOOKUP_TABLE_VOL: [(u16, u16); 28] = [
@@ -93,7 +100,7 @@ fn measurement_to_angle(val: u16) -> u16 {
 }
 
 /// Set the ALSA volume (percent value 0-100).
-fn set_volume(volume: u8) {
+fn set_volume(volume: u8, volume_debugging: bool) {
     // Clamp volume to 0-100
     let volume = std::cmp::min(volume, 100);
 
@@ -107,38 +114,48 @@ fn set_volume(volume: u8) {
         .stderr(Stdio::null())
         .status();
     match status_res {
-        Ok(status) if status.success() => println!("Set volume to {}%", volume),
+        Ok(status) if status.success() => {
+            if volume_debugging {
+                println!("Set volume to {}%", volume);
+            }
+        }
         Ok(status) => eprintln!("Error: Exit status {} when setting volume", status),
         Err(e) => eprintln!("Error: Could not set volume: {}", e),
     };
 }
 
 /// Play a playlist through the API.
-fn play_playlist(name: &str) {
-    let status_res = Command::new("/usr/bin/curl")
-        .arg(format!("http://127.0.0.1:3000/api/v1/commands/?cmd=playplaylist&name={}", name))
+fn play_url(url: &str) -> Option<Child> {
+    let child_res = Command::new("ffplay")
+        .arg("-nodisp")
+        .arg("-autoexit")
+        .arg(url)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
-    match status_res {
-        Ok(status) if status.success() => println!("Started playlist {}", name),
-        Ok(status) => eprintln!("Error: Exit status {} when starting playlist {}", status, name),
-        Err(e) => eprintln!("Error: Could not play playlist {}: {}", name, e),
+        .spawn();
+    let mut child = match child_res {
+        Ok(child) => {
+            println!("Started playback of URL {}", url);
+            child
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to start playback of URL {}: {}", url, e);
+            return None;
+        }
     };
-}
 
-/// Stop playback.
-fn stop_playback() {
-    let status_res = Command::new("/usr/bin/curl")
-        .arg("http://127.0.0.1:3000/api/v1/commands/?cmd=stop")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match status_res {
-        Ok(status) if status.success() => println!("Stopped playback"),
-        Ok(status) => eprintln!("Error: Exit status {} when stopping playback", status),
-        Err(e) => eprintln!("Error: Could not stop playback: {}", e),
+    // Ensure the child process doesn't exit immediately
+    thread::sleep(Duration::from_millis(300));
+    match child.try_wait() {
+        Ok(Some(status)) => eprintln!("Playback process exited with status {:?}", status.code()),
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("Error while calling child.try_wait: {}", e);
+            return None;
+        }
     };
+
+    Some(child)
 }
 
 /// Shut down the system.
@@ -214,18 +231,40 @@ impl GpioPinState {
         macro_rules! process_pin {
             ($pin:expr, $measurement:expr, $button:expr, $inverted:expr) => {
                 match $measurement.update($pin.read() == Level::Low) {
-                    Some(Edge::Rising) => if $inverted { released.push($button) } else { pressed.push($button) },
-                    Some(Edge::Falling) => if $inverted { pressed.push($button) } else { released.push($button) },
+                    Some(Edge::Rising) => {
+                        if $inverted {
+                            released.push($button)
+                        } else {
+                            pressed.push($button)
+                        }
+                    }
+                    Some(Edge::Falling) => {
+                        if $inverted {
+                            pressed.push($button)
+                        } else {
+                            released.push($button)
+                        }
+                    }
                     None => {}
                 }
             };
         }
 
         process_pin!(self.pins.aus, self.measurements.aus, Button::Aus, true);
-        process_pin!(self.pins.tonabn, self.measurements.tonabn, Button::Tonabnehmer, false);
+        process_pin!(
+            self.pins.tonabn,
+            self.measurements.tonabn,
+            Button::Tonabnehmer,
+            false
+        );
         process_pin!(self.pins.ukw, self.measurements.ukw, Button::Ukw, false);
         process_pin!(self.pins.kurz, self.measurements.kurz, Button::Kurz, false);
-        process_pin!(self.pins.mittel, self.measurements.mittel, Button::Mittel, false);
+        process_pin!(
+            self.pins.mittel,
+            self.measurements.mittel,
+            Button::Mittel,
+            false
+        );
         process_pin!(self.pins.lang, self.measurements.lang, Button::Lang, false);
 
         (pressed, released)
@@ -239,7 +278,7 @@ type Adc = Ads1x1x<
     ads1x1x::mode::OneShot,
 >;
 
-fn adc_loop(mut adc: Adc) -> ! {
+fn adc_loop(mut adc: Adc, volume_debugging: bool) -> ! {
     // Do measurement
     loop {
         // Analog input 0 ("Lautstärke")
@@ -250,38 +289,58 @@ fn adc_loop(mut adc: Adc) -> ! {
         let a1 = block!(adc.read(&mut channel::SingleA1)).unwrap();
 
         // Print values
-        println!("a0={} a1={} vol={}", a0, a1, volume);
+        if volume_debugging {
+            println!("a0={} a1={} vol={}", a0, a1, volume);
+        }
 
         // Set volume
-        set_volume(volume);
+        set_volume(volume, volume_debugging);
 
         // Sleep for some milliseconds
         thread::sleep(Duration::from_millis(250));
     }
 }
 
-fn gpio_loop(pins: GpioPins) -> ! {
+enum PlaybackCommand {
+    /// Play the specified URL.
+    PlayUrl(String),
+    /// Stop playback.
+    Stop,
+}
+
+fn gpio_loop(pins: GpioPins, playback_tx: mpsc::Sender<PlaybackCommand>) -> ! {
     let mut state = GpioPinState::new(pins);
     loop {
         // Update measurements
         let (pressed, released) = state.update();
 
-        if !pressed.is_empty() {
-            println!("Pressed: {:?}", pressed);
-
-            match pressed[0] {
-                Button::Aus => shutdown(),
-                Button::Tonabnehmer => play_playlist("jazz"),
-                Button::Ukw => play_playlist("mellow"),
-                Button::Kurz => play_playlist("world"),
-                Button::Mittel => play_playlist("rockblues"),
-                Button::Lang => play_playlist("progrock"),
-            }
-        }
+        // Handle released keys
         if !released.is_empty() {
             println!("Released: {:?}", released);
             if pressed.is_empty() {
-                stop_playback();
+                playback_tx
+                    .send(PlaybackCommand::Stop)
+                    .unwrap_or_else(|e| eprintln!("Error: Failed to send stop command: {}", e));
+            }
+        }
+
+        // Handle pressed keys
+        if !pressed.is_empty() {
+            println!("Pressed: {:?}", pressed);
+
+            let play = |url: &str| {
+                playback_tx
+                    .send(PlaybackCommand::PlayUrl(url.into()))
+                    .unwrap_or_else(|e| eprintln!("Error: Failed to send playback command: {}", e))
+            };
+
+            match pressed[0] {
+                Button::Aus => shutdown(),
+                Button::Tonabnehmer => play("http://stream.srg-ssr.ch/m/rsj/mp3_128"),
+                Button::Ukw => play("http://stream.radioparadise.com/mellow-flac"),
+                Button::Kurz => play("http://stream.radioparadise.com/eclectic-flac"),
+                Button::Mittel => play("http://stream.radioparadise.com/rock-flac"),
+                Button::Lang => play("http://streamingv2.shoutcast.com/100-PROGRESSIVEROCK"),
             }
         }
 
@@ -290,6 +349,38 @@ fn gpio_loop(pins: GpioPins) -> ! {
         // a signal must be stable for 160ms to trigger
         // the interrupt.
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn playback_loop(playback_rx: mpsc::Receiver<PlaybackCommand>) {
+    let mut child: Option<Child> = None;
+
+    fn stop(child: &mut Option<Child>) {
+        if let Some(ref mut c) = child {
+            if let Err(e) = signal::kill(Pid::from_raw(c.id() as i32), Signal::SIGINT) {
+                eprintln!("Could not send SIGINT to child process: {}", e);
+            }
+            if let Err(e) = c.wait() {
+                eprintln!("Error while waiting for playback process to end: {}", e);
+            }
+        }
+        *child = None;
+    }
+
+    while let Ok(command) = playback_rx.recv() {
+        match command {
+            PlaybackCommand::PlayUrl(url) => {
+                println!("[playback_loop] Play URL {}", url);
+                if child.is_some() {
+                    stop(&mut child);
+                }
+                child = play_url(&url);
+            }
+            PlaybackCommand::Stop => {
+                println!("[playback_loop] Stop playback");
+                stop(&mut child);
+            }
+        }
     }
 }
 
@@ -342,8 +433,11 @@ fn main() {
     }
 
     // Start threads
-    let adc_thread = thread::spawn(move || adc_loop(adc));
-    let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins));
+    let (playback_tx, playback_rx) = mpsc::channel();
+    let adc_thread = thread::spawn(move || adc_loop(adc, opts.volume_debugging));
+    let gpio_thread = thread::spawn(move || gpio_loop(gpio_pins, playback_tx));
+    let playback_thread = thread::spawn(move || playback_loop(playback_rx));
     adc_thread.join().unwrap();
     gpio_thread.join().unwrap();
+    playback_thread.join().unwrap();
 }
